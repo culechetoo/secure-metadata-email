@@ -32,14 +32,14 @@ emails = []
 start_time = time.time()
 
 for i in range(100):
-    print(i)
+    print("Sending email", i+1)
     message, rcvr_email = generate_random_email()
     emails.append((message, rcvr_email))
     sender = random.choice(users)
 
     sender.send_email(message, rcvr_email)
 
-print(f"Time taken for pretzel: %d", time.time()-start_time)
+print(f"Time taken for pretzel: %.4f seconds" % (time.time()-start_time))
 
 for domain, server in meta.domain_server_map.items():
     server.set_privacy_mode("pretzel_plus")
@@ -50,10 +50,10 @@ for user in users:
 start_time = time.time()
 
 for i in range(100):
-    print(i)
+    print("Sending email", i+1)
     message, rcvr_email = emails[i]
     sender = random.choice(users)
 
     sender.send_email(message, rcvr_email)
 
-print("Time taken for pretzel plus: %d", time.time()-start_time)
+print(f"Time taken for pretzel plus: %.4f seconds" % (time.time()-start_time))

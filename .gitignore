@@ -1,2 +1,4 @@
 /data/
 *ml
+.history
+__pycache__
