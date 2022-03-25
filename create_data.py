@@ -1,6 +1,5 @@
 import random
 import pickle
-import string
 
 import meta
 import crypto
@@ -15,7 +14,11 @@ usernames = ["chaitanya", "shantanu", "anirudh", "sriram", "pranav", "yajur", "r
 server_map = {}
 
 for domain_name in domain_names:
-    server_map[domain_name] = Server(domain_name)
+    rsa_key = crypto.generate()
+    key_file = open("data/keys/"+domain_name+"_header", 'wb')
+    key_file.write(rsa_key.exportKey())
+
+    server_map[domain_name] = Server(domain_name, "data/keys/"+domain_name+"_header")
 
 for username in usernames:
     domain = random.choice(domain_names)

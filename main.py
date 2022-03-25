@@ -2,18 +2,19 @@ import os
 import random
 import string
 import pickle
+import time
 
 import meta
 
 
 users = []
-emails = []
+email_addresses = []
 
 
 def generate_random_email():
     mess_length = random.randint(0, 200)
     message = "".join(random.choice(string.ascii_lowercase) for _ in range(mess_length))
-    return message, random.choice(emails)
+    return message, random.choice(email_addresses)
 
 
 def read_data():
@@ -22,15 +23,37 @@ def read_data():
         meta.domain_server_map[server.domain] = server
         for username, user in server.users.items():
             users.append(user)
-            emails.append(username+"@"+server.domain)
+            email_addresses.append(username+"@"+server.domain)
 
 
 read_data()
+emails = []
 
+start_time = time.time()
 
 for i in range(100):
+    print(i)
     message, rcvr_email = generate_random_email()
+    emails.append((message, rcvr_email))
     sender = random.choice(users)
 
     sender.send_email(message, rcvr_email)
 
+print(f"Time taken for pretzel: %d", time.time()-start_time)
+
+for domain, server in meta.domain_server_map.items():
+    server.set_privacy_mode("pretzel_plus")
+
+for user in users:
+    user.set_privacy_mode("pretzel_plus")
+
+start_time = time.time()
+
+for i in range(100):
+    print(i)
+    message, rcvr_email = emails[i]
+    sender = random.choice(users)
+
+    sender.send_email(message, rcvr_email)
+
+print("Time taken for pretzel plus: %d", time.time()-start_time)
