@@ -30,7 +30,7 @@ class Server:
         elif self.privacy_mode == "pretzel_plus":
             client = self.users[client_username]
             client_key = client.send_client_key()
-            return {"message_key": client_key, "header_key": crypto.get_public_key(self.header_key_path)}
+            return {"rcvr_key": client_key, "server_key": crypto.get_public_key(self.header_key_path)}
 
     def request_receiver_key(self, rcvr_address):
         receiving_domain = rcvr_address.split("@")[1]
@@ -58,6 +58,7 @@ class Server:
         if self.privacy_mode == "pretzel":
             receiving_user = email["rcvr"].split("@")[0]
         elif self.privacy_mode == "pretzel_plus":
-            receiving_user = crypto.decrypt_message(email["rcvr_username"], crypto.get_key(self.header_key_path))
+            receiving_user = crypto.decrypt_message_asymmetric(email["rcvr_username"],
+                                                               crypto.get_key(self.header_key_path)).decode("utf-8")
 
         self.users[receiving_user].rcv_email(email)
