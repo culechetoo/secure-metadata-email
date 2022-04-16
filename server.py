@@ -39,24 +39,15 @@ class Server:
         return rcvr_server.request_client_key(rcvr_address.split("@")[0])
 
     def send(self, email):
-
-        receiving_domain = ""
-
-        if self.privacy_mode == "pretzel_plus":
-            receiving_domain = email["rcvr_domain"]
-        elif self.privacy_mode == "pretzel":
-            receiving_domain = email["rcvr"].split("@")[1]
-
+        receiving_domain = email["rcvr_domain"]
         rcvr_server = meta.domain_server_map[receiving_domain]
-
         rcvr_server.rcv(email)
 
     def rcv(self, email):
-
         receiving_user = ""
 
         if self.privacy_mode == "pretzel":
-            receiving_user = email["rcvr"].split("@")[0]
+            receiving_user = email["rcvr_username"]
         elif self.privacy_mode == "pretzel_plus":
             receiving_user = crypto.decrypt_message_asymmetric(email["rcvr_username"],
                                                                crypto.get_key(self.header_key_path)).decode("utf-8")

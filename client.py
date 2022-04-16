@@ -45,8 +45,12 @@ class Client:
         if self.privacy_mode == "pretzel":
             encryption_key = self.get_receiver_key(rcvr_address)
 
-            email = {"message": crypto.encrypt_message_asymmetric(message, encryption_key),
-                     "sender": self.username+"@"+self.domain, "rcvr": rcvr_address}
+            email = {
+                "message": crypto.encrypt_message_asymmetric(message, encryption_key),
+                "sender": self.username+"@"+self.domain, 
+                "rcvr_username": rcvr_address.split("@")[0],
+                "rcvr_domain": rcvr_address.split("@")[1],
+            }
 
         elif self.privacy_mode == "pretzel_plus":
             keys = self.get_receiver_key(rcvr_address)
@@ -60,10 +64,14 @@ class Client:
 
             encrypted_receiver_sym_key = crypto.encrypt_message_asymmetric(receiver_sym_key, receiver_key)
 
-            email = {"message": encrypted_message, "sender_username": encrypted_sender_username,
-                     "rcvr_username": crypto.encrypt_message_asymmetric(rcvr_address.split("@")[0], server_key),
-                     "sender_domain": self.domain, "rcvr_domain": rcvr_address.split("@")[1],
-                     "encrypted_rcvr_sym_key": encrypted_receiver_sym_key}
+            email = {
+                "message": encrypted_message,
+                "sender_username": encrypted_sender_username,
+                "sender_domain": self.domain, 
+                "rcvr_username": crypto.encrypt_message_asymmetric(rcvr_address.split("@")[0], server_key),
+                "rcvr_domain": rcvr_address.split("@")[1],
+                "encrypted_rcvr_sym_key": encrypted_receiver_sym_key,
+            }
 
         self.domain_server.send(email)
 
