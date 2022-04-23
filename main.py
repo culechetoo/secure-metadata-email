@@ -6,6 +6,7 @@ import time
 import sys
 
 import meta
+import threading
 
 EMAIL_COUNT = 100
 
@@ -22,6 +23,11 @@ def read_data():
     for server_file in os.listdir("data/server"):
         server = pickle.load(open("data/server/"+server_file, 'rb'))
         meta.domain_server_map[server.domain] = server
+        
+        server.start_socket()
+        t = threading.Thread(target=server.rcv_socket_loop)
+        t.start()
+        
         for username, user in server.users.items():
             users.append(user)
             email_addresses.append(username+"@"+server.domain)

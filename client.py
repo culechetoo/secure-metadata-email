@@ -82,8 +82,7 @@ class Client:
             message = crypto.decrypt_message_asymmetric(email["message"], key)
 
         elif self.privacy_mode == "pretzel_plus":
-            receiver_sym_key = crypto.decrypt_message_asymmetric(email["encrypted_rcvr_sym_key"],
-                                                                 crypto.get_key(self.message_key_path))
+            receiver_sym_key = crypto.decrypt_message_asymmetric(email["encrypted_rcvr_sym_key"], key)
 
             message = crypto.decrypt_message_symmetric(*email["message"], receiver_sym_key)
             sender_username = crypto.decrypt_message_symmetric(*email["sender_username"], receiver_sym_key)
