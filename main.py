@@ -65,6 +65,8 @@ end_time = time.time()
 print(f"Time taken for pretzel: %.4f seconds" % (end_time-start_time))
 print(f"Time per email for pretzel: %.4f seconds" % ((end_time-start_time)/float(EMAIL_COUNT)))
 
+time.sleep(10)
+
 for domain, server in meta.domain_server_map.items():
     server.set_privacy_mode("pretzel_plus")
 
