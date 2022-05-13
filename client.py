@@ -1,91 +1,285 @@
-import string
-import random
-
+import socket
+from unicodedata import name
+import constants
 import crypto
+import pickle
+from globals import DOMAIN_SERVER_MAP
 
 
 class Client:
 
-    def __init__(self, username, domain, message_key_path, domain_server, privacy_mode="pretzel"):
+    def __init__(self, username, domain, domain_server, host, port, privacy_mode=constants.PRETZEL):
         self.username = username
         self.domain = domain
-        self.message_key_path = message_key_path
         self.domain_server = domain_server
 
-        self.privacy_mode = privacy_mode
+        self.host = host
+        self.port = port
 
-        self.key_cache = {}
-        self.symmetric_key_cache = {}
+        self.privacy_mode = privacy_mode
+        self.keys = []
+        self.emails = []
+
+        self.server_key = None
+        self.client_key = None
+
+    def start_socket(self):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.bind((self.host, self.port))
+        self.socket.listen((constants.MAX_QUEUE))
+
+    def flush_keys(self):
+        self.server_key = None
+        self.client_key = None
+
+    def add_key(self, entity, entity_name, key_type, key):
+        found = False
+
+        key_bytes = crypto.get_serialized_key(key_type, key)
+
+        for entry in self.keys:
+            if (entry[constants.KeyMapFields.ENTITY] == entity and entry[constants.KeyMapFields.NAME] == entity_name):
+                found = True
+                entry[constants.KeyMapFields.KEYMAP][key_type] = key_bytes
+                break
+        if not found:
+            self.keys.append({
+                constants.KeyMapFields.ENTITY: entity,
+                constants.KeyMapFields.NAME: entity_name,
+                constants.KeyMapFields.KEYMAP: {key_type: key_bytes},
+            })
+
+    def get_key_entry(self, entity, key_type, key):
+        key_bytes = crypto.get_serialized_key(key_type, key)
+        for item in self.keys:
+            if item[constants.KeyMapFields.ENTITY] == entity and key_type in item[constants.KeyMapFields.KEYMAP] and item[constants.KeyMapFields.KEYMAP][key_type] == key_bytes:
+                return item
+
+    def get_key(self, entity, name, key_type):
+        for item in self.keys:
+            if item[constants.KeyMapFields.ENTITY] == entity and \
+                    item[constants.KeyMapFields.NAME] == name and \
+                    key_type in item[constants.KeyMapFields.KEYMAP]:
+                return crypto.get_deserialized_key(key_type, item[constants.KeyMapFields.KEYMAP][key_type])
 
     def set_privacy_mode(self, privacy_mode):
         self.privacy_mode = privacy_mode
-        self.key_cache = {}
-
-    def get_receiver_key(self, rcvr_address):
-        if rcvr_address in self.key_cache:
-            encryption_key = self.key_cache[rcvr_address]
-        else:
-            encryption_key = self.domain_server.request_receiver_key(rcvr_address)
-            self.key_cache[rcvr_address] = encryption_key
-
-        return encryption_key
-
-    def generate_symmetric_key(self, rcvr_address):
-        if rcvr_address in self.symmetric_key_cache:
-            return self.symmetric_key_cache[rcvr_address]
-        else:
-            key = crypto.generate_symmetric()
-            self.symmetric_key_cache[rcvr_address] = key
-            return key
 
     def send_email(self, message, rcvr_address):
+        domain = rcvr_address.split('@')[1]
 
-        email = {}
+        # print(domain)
+        # print(self.keys)
+        server_id_key = self.get_key(
+            constants.KeyMapValues.SERVER, domain, constants.KeyMapValues.PUBLIC_KEY
+        )
+        email = {
+            constants.MessageFields.TYPE: constants.MessageType.EMAIL_FWD,
+            constants.EmailFields.MESSAGE: crypto.encrypt_message_symmetric(message, self.client_key),
+            constants.EmailFields.DOMAIN: domain,
+            constants.MessageFields.ID_KEY: crypto.serialize_public_key(server_id_key),
+        }
 
-        if self.privacy_mode == "pretzel":
-            encryption_key = self.get_receiver_key(rcvr_address)
+        if self.privacy_mode == constants.PRETZEL:
+            email[constants.EmailFields.SENDER_EMAIL] = self.username + \
+                "@"+self.domain
+            email[constants.EmailFields.RECEIVER_EMAIL] = rcvr_address
 
-            email = {
-                "message": crypto.encrypt_message_asymmetric(message, encryption_key),
-                "sender": self.username+"@"+self.domain, 
-                "rcvr_username": rcvr_address.split("@")[0],
-                "rcvr_domain": rcvr_address.split("@")[1],
-            }
+        elif self.privacy_mode == constants.PRETZEL_PLUS:
+            email[constants.EmailFields.SENDER_EMAIL] = crypto.encrypt_message_symmetric(
+                self.username+"@"+self.domain, self.client_key)
+            email[constants.EmailFields.RECEIVER_EMAIL] = crypto.encrypt_message_symmetric(
+                rcvr_address, self.server_key)
 
-        elif self.privacy_mode == "pretzel_plus":
-            keys = self.get_receiver_key(rcvr_address)
-            receiver_key = keys["rcvr_key"]
-            server_key = keys["server_key"]
+        self.send_to_server(self.domain, email)
 
-            receiver_sym_key = self.generate_symmetric_key(rcvr_address)
+    def receive_email(self, email):
+        # print("keys", self.keys)
+        sym_key = self.get_key(constants.KeyMapValues.USER,
+                               email[constants.MessageFields.ID_KEY], constants.KeyMapValues.SYMMETRIC_KEY)
 
-            encrypted_message = crypto.encrypt_message_symmetric(message, receiver_sym_key)
-            encrypted_sender_username = crypto.encrypt_message_symmetric(self.username, receiver_sym_key)
+        message = crypto.decrypt_message_symmetric(
+            *email[constants.EmailFields.MESSAGE], sym_key
+        )
+        # print("message", message)
+        if self.privacy_mode == constants.PRETZEL_PLUS:
+            sender_email = crypto.decrypt_message_symmetric(
+                *email[constants.EmailFields.SENDER_EMAIL], sym_key
+            )
+            # print("sender_email", sender_email)
 
-            encrypted_receiver_sym_key = crypto.encrypt_message_asymmetric(receiver_sym_key, receiver_key)
+    def send_to_server(self, domain, msg):
+        # print("Sending", msg, "to", domain, "server from user", self.username)
+        server = DOMAIN_SERVER_MAP[domain]
+        skt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        skt.connect((server.host, server.port))
+        skt.sendall(pickle.dumps(msg, -1))
+        skt.close()
 
-            email = {
-                "message": encrypted_message,
-                "sender_username": encrypted_sender_username,
-                "sender_domain": self.domain, 
-                "rcvr_username": crypto.encrypt_message_asymmetric(rcvr_address.split("@")[0], server_key),
-                "rcvr_domain": rcvr_address.split("@")[1],
-                "encrypted_rcvr_sym_key": encrypted_receiver_sym_key,
-            }
+    def generate_server_key(self, domain):
+        private_key = crypto.generate_dhe_private_key()
+        public_key = private_key.public_key()
+        self.add_key(constants.KeyMapValues.SERVER, domain,
+                     constants.KeyMapValues.PUBLIC_KEY, public_key)
+        self.add_key(constants.KeyMapValues.SERVER, domain,
+                     constants.KeyMapValues.PRIVATE_KEY, private_key)
 
-        self.domain_server.send(email)
+        msg = {
+            constants.MessageFields.TYPE: constants.MessageType.SERVER_KEYGEN_FWD,
+            constants.MessageFields.KEY: crypto.serialize_public_key(public_key),
+            constants.MessageFields.DOMAIN: domain,
+            constants.MessageFields.USERNAME: self.username,
+        }
+        self.send_to_server(self.domain, msg)
 
-    def rcv_email(self, email):
+    def generate_user_key(self, username):
+        domain = username.split('@')[1]
+        private_key = crypto.generate_dhe_private_key()
+        public_key = private_key.public_key()
 
-        key = crypto.get_key(self.message_key_path)
-        if self.privacy_mode == "pretzel":
-            message = crypto.decrypt_message_asymmetric(email["message"], key)
+        self.add_key(constants.KeyMapValues.USER, username,
+                     constants.KeyMapValues.PRIVATE_KEY, private_key)
+        self.add_key(constants.KeyMapValues.USER, username,
+                     constants.KeyMapValues.PUBLIC_KEY, public_key)
 
-        elif self.privacy_mode == "pretzel_plus":
-            receiver_sym_key = crypto.decrypt_message_asymmetric(email["encrypted_rcvr_sym_key"], key)
+        msg = {
+            constants.MessageFields.TYPE: constants.MessageType.CLIENT_KEYGEN_FWD,
+            constants.MessageFields.KEY: crypto.serialize_public_key(public_key),
+            constants.MessageFields.DOMAIN: domain,
+            constants.MessageFields.USERNAME: self.username,
+        }
 
-            message = crypto.decrypt_message_symmetric(*email["message"], receiver_sym_key)
-            sender_username = crypto.decrypt_message_symmetric(*email["sender_username"], receiver_sym_key)
+        if self.privacy_mode == constants.PRETZEL:
+            self.add_key(constants.KeyMapValues.SERVER, domain,
+                         constants.KeyMapValues.PUBLIC_KEY, public_key)
+            self.add_key(constants.KeyMapValues.SERVER, domain,
+                         constants.KeyMapValues.PRIVATE_KEY, private_key)
+            msg[constants.MessageFields.RECEIVER] = username
+            msg[constants.MessageFields.ID_KEY] = crypto.serialize_public_key(
+                public_key
+            )
+        elif self.privacy_mode == constants.PRETZEL_PLUS:
+            server_id_key = self.get_key(
+                constants.KeyMapValues.SERVER, domain, constants.KeyMapValues.PUBLIC_KEY
+            )
+            msg[constants.MessageFields.RECEIVER] = crypto.encrypt_message_symmetric(
+                username, self.server_key
+            )
+            msg[constants.MessageFields.ID_KEY] = crypto.serialize_public_key(
+                server_id_key
+            )
 
-    def send_client_key(self):
-        return crypto.get_public_key(self.message_key_path)
+        self.send_to_server(self.domain, msg)
+
+    def store_server_key(self, msg):
+        id_key = msg[constants.MessageFields.ID_KEY]
+
+        # print("keys for user", self.username, "in domain", self.domain, ":", self.keys)
+
+        key_entry = self.get_key_entry(
+            constants.KeyMapValues.SERVER, constants.KeyMapValues.PUBLIC_KEY, crypto.deserialize_public_key(
+                id_key)
+        )
+
+        public_key = crypto.deserialize_public_key(
+            msg[constants.MessageFields.KEY]
+        )
+        private_key = crypto.get_deserialized_key(
+            constants.KeyMapValues.PRIVATE_KEY,
+            key_entry[constants.KeyMapFields.KEYMAP][constants.KeyMapValues.PRIVATE_KEY]
+        )
+        symkey = crypto.get_derived_shared_key(private_key, public_key)
+
+        key_entry[constants.KeyMapFields.KEYMAP][constants.KeyMapValues.SYMMETRIC_KEY] = symkey
+
+        self.server_key = symkey
+
+    def store_client_key(self, msg):
+        id_key = msg[constants.MessageFields.ID_KEY]
+
+        # print("keys for user", self.username, "in domain", self.domain, ":", self.keys)
+
+        key_entry = self.get_key_entry(
+            constants.KeyMapValues.USER, constants.KeyMapValues.PUBLIC_KEY, crypto.deserialize_public_key(
+                id_key)
+        )
+
+        public_key = crypto.deserialize_public_key(
+            msg[constants.MessageFields.KEY]
+        )
+        private_key = crypto.get_deserialized_key(
+            constants.KeyMapValues.PRIVATE_KEY,
+            key_entry[constants.KeyMapFields.KEYMAP][constants.KeyMapValues.PRIVATE_KEY]
+        )
+        symkey = crypto.get_derived_shared_key(private_key, public_key)
+
+        key_entry[constants.KeyMapFields.KEYMAP][constants.KeyMapValues.SYMMETRIC_KEY] = symkey
+
+        self.client_key = symkey
+
+    def exchange_user_key(self, msg):
+        private_key = crypto.generate_dhe_private_key()
+        id_key = crypto.deserialize_public_key(
+            msg[constants.MessageFields.ID_KEY])
+        return_domain = msg[constants.MessageFields.RETURN_DOMAIN]
+        received_public_key = crypto.deserialize_public_key(
+            msg[constants.MessageFields.KEY])
+
+        self.add_key(
+            constants.KeyMapValues.USER,
+            crypto.get_serialized_key(
+                constants.KeyMapValues.PUBLIC_KEY, id_key
+            ),
+            constants.KeyMapValues.PRIVATE_KEY,
+            private_key,
+        )
+        self.add_key(
+            constants.KeyMapValues.USER,
+            crypto.get_serialized_key(
+                constants.KeyMapValues.PUBLIC_KEY, id_key
+            ),
+            constants.KeyMapValues.PUBLIC_KEY,
+            private_key.public_key(),
+        )
+
+        symkey = crypto.get_derived_shared_key(
+            private_key, received_public_key)
+        self.add_key(
+            constants.KeyMapValues.USER,
+            crypto.get_serialized_key(
+                constants.KeyMapValues.PUBLIC_KEY, id_key
+            ),
+            constants.KeyMapValues.SYMMETRIC_KEY,
+            symkey,
+        )
+
+        msg = {
+            constants.MessageFields.TYPE: constants.MessageType.CLIENT_KEYGEN_RETURN_FWD,
+            constants.MessageFields.KEY: crypto.get_serialized_key(
+                constants.KeyMapValues.PUBLIC_KEY, private_key.public_key()
+            ),
+            constants.MessageFields.ID_KEY: crypto.serialize_public_key(received_public_key),
+            constants.MessageFields.DOMAIN: return_domain,
+        }
+
+        self.send_to_server(self.domain, msg)
+
+    def rcv_socket_loop(self):
+        while True:
+            conn, _ = self.socket.accept()
+            msg_bytes = conn.recv(1024)
+            if not msg_bytes:
+                break
+            msg = pickle.loads(msg_bytes)
+            msg_type = msg[constants.MessageFields.TYPE]
+
+            if (msg_type == constants.MessageType.SERVER_KEYGEN_RETURN):
+                self.store_server_key(msg)
+            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RCV):
+                self.exchange_user_key(msg)
+            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RETURN_RCV):
+                self.store_client_key(msg)
+            elif (msg_type == constants.MessageType.EMAIL_RCV):
+                self.receive_email(msg)
+            else:
+                print("Incorrect message type", msg_type)

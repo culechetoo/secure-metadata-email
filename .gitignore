@@ -2,3 +2,5 @@
 *ml
 .history
 __pycache__
+notes.txt
+test-*.py

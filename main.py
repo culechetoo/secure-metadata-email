@@ -1,14 +1,15 @@
 import os
 import random
+from re import T
 import string
 import pickle
 import time
 import sys
-
-import meta
 import threading
+import meta # create data
+from globals import DOMAIN_SERVER_MAP
 
-EMAIL_COUNT = 100
+EMAIL_COUNT = 10
 
 users = []
 email_addresses = []
@@ -19,21 +20,18 @@ def generate_random_email():
     return message, random.choice(email_addresses)
 
 
-def read_data():
-    for server_file in os.listdir("data/server"):
-        server = pickle.load(open("data/server/"+server_file, 'rb'))
-        meta.domain_server_map[server.domain] = server
-        
-        server.start_socket()
-        t = threading.Thread(target=server.rcv_socket_loop)
+for server in DOMAIN_SERVER_MAP.values():
+    server.start_socket()
+    t = threading.Thread(target=server.rcv_socket_loop)
+    t.start()
+    
+    for username, user in server.users.items():
+        user.start_socket()
+        t = threading.Thread(target=user.rcv_socket_loop)
         t.start()
-        
-        for username, user in server.users.items():
-            users.append(user)
-            email_addresses.append(username+"@"+server.domain)
+        users.append(user)
+        email_addresses.append(username+"@"+server.domain)
 
-
-read_data()
 emails = []
 
 def gen_emails():
@@ -58,16 +56,20 @@ for i in range(EMAIL_COUNT):
     message, rcvr_email = emails[i]
     sender = random.choice(users)
 
+    sender.generate_user_key(rcvr_email)
+    while(not sender.client_key):
+        continue
     sender.send_email(message, rcvr_email)
+    sender.flush_keys()
 
 end_time = time.time()
 
 print(f"Time taken for pretzel: %.4f seconds" % (end_time-start_time))
 print(f"Time per email for pretzel: %.4f seconds" % ((end_time-start_time)/float(EMAIL_COUNT)))
 
-time.sleep(10)
+time.sleep(5) # wait for any pending operations to clear
 
-for domain, server in meta.domain_server_map.items():
+for domain, server in DOMAIN_SERVER_MAP.items():
     server.set_privacy_mode("pretzel_plus")
 
 for user in users:
@@ -83,7 +85,14 @@ for i in range(EMAIL_COUNT):
     message, rcvr_email = emails[i]
     sender = random.choice(users)
 
+    sender.generate_server_key(rcvr_email.split('@')[1])
+    while(not sender.server_key):
+        continue
+    sender.generate_user_key(rcvr_email)
+    while(not sender.client_key):
+        continue
     sender.send_email(message, rcvr_email)
+    sender.flush_keys()
 
 end_time = time.time()
 
