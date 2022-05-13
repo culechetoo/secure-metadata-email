@@ -85,24 +85,6 @@ class Server:
             if entry[constants.KeyMapFields.KEY] == key:
                 return entry[constants.KeyMapFields.NAME]
 
-    def request_client_key(self, client_username):
-        if self.privacy_mode == constants.PRETZEL:
-            client = self.users[client_username]
-            return client.send_client_key()
-        elif self.privacy_mode == constants.PRETZEL_PLUS:
-            client = self.users[client_username]
-            client_key = client.send_client_key()
-            return {
-                "rcvr_key": client_key,
-                "server_key": crypto.get_public_key(self.header_key_path),
-            }
-
-    def request_receiver_key(self, rcvr_address):
-        receiving_domain = rcvr_address.split("@")[1]
-        rcvr_server = DOMAIN_SERVER_MAP[receiving_domain]
-
-        return rcvr_server.request_client_key(rcvr_address.split("@")[0])
-
     def send(self, email):
         receiving_domain = email["rcvr_domain"]
         rcvr_server = DOMAIN_SERVER_MAP[receiving_domain]
@@ -224,17 +206,6 @@ class Server:
         username = self.get_username_by_key(client_key)
         self.remove_client_key(client_key)
         self.send_to_user(username, msg)
-
-    def rcv(self, email):
-        receiving_user = ""
-
-        if self.privacy_mode == constants.PRETZEL:
-            receiving_user = email["rcvr_username"]
-        elif self.privacy_mode == constants.PRETZEL_PLUS:
-            receiving_user = crypto.decrypt_message_asymmetric(email["rcvr_username"],
-                                                               crypto.get_key(self.header_key_path)).decode("utf-8")
-
-        self.users[receiving_user].rcv_email(email)
 
     def rcv_socket_loop(self):
         while True:
