@@ -1,3 +1,4 @@
+from tracemalloc import start
 import globals
 import constants
 import os
@@ -16,16 +17,6 @@ users = []
 email_addresses = []
 
 globals.reset_params()
-
-
-def print_stats(privacy_mode):
-    print()
-    print('- - - - - S T A T S - - - - -')
-    print(f"Total time for %s: %.4f seconds" %
-          (privacy_mode, end_time-start_time))
-    print(f"Time per email for %s: %.4f seconds" %
-          (privacy_mode, (end_time-start_time)/float(EMAIL_COUNT)))
-    print()
 
 
 def generate_random_email():
@@ -68,32 +59,39 @@ def gen_emails():
 
 gen_emails()
 
-start_time = time.time()
-
 print()
 
 print('* * * * * * * * * * * * * *  P R E T Z E L  * * * * * * * * * * * * * *')
 
 for i in range(EMAIL_COUNT):
     if (i == EMAIL_COUNT-1):
-        print(f"Sending pretzel email %d" % (i+1))
+        if globals.LOGGING:
+            print(f"\n- - - - - - Sending email %d - - - - - -" % (i+1))
+        else:
+            print(f"Sending email %d" % (i+1))
     else:
-        print(f"Sending pretzel email %d" % (i+1), end='\r')
+        if globals.LOGGING:
+            print(f"\n- - - - - - Sending email %d - - - - - -" % (i+1))
+        else:
+            print(f"Sending email %d" % (i+1), end='\r')
 
     message, rcvr_email = emails[i]
     sender = random.choice(users)
 
+    start_time = time.time()
+    
     sender.generate_user_key(rcvr_email)
     while(not sender.client_key):
         continue
     sender.send_email(message, rcvr_email)
+    
+    globals.TOTAL_TIME += time.time() - start_time
+    
     sender.flush_keys()
 
-end_time = time.time()
+    time.sleep(0.1) # wait for pending ops
 
-print_stats(constants.PRETZEL)
-
-time.sleep(5)  # wait for any pending operations to clear
+time.sleep(1)  # wait for any pending operations to clear
 
 globals.print_params(EMAIL_COUNT)
 
@@ -107,15 +105,21 @@ for user in users:
 
 globals.reset_params()
 
-start_time = time.time()
-
 for i in range(EMAIL_COUNT):
     if (i == EMAIL_COUNT-1):
-        print(f"Sending pretzel plus email %d" % (i+1))
+        if globals.LOGGING:
+            print(f"\n- - - - - - Sending email %d - - - - - -" % (i+1))
+        else:
+            print(f"Sending email %d" % (i+1))
     else:
-        print(f"Sending pretzel plus email %d" % (i+1), end='\r')
+        if globals.LOGGING:
+            print(f"\n- - - - - - Sending email %d - - - - - -" % (i+1))
+        else:
+            print(f"Sending email %d" % (i+1), end='\r')
     message, rcvr_email = emails[i]
     sender = random.choice(users)
+
+    start_time = time.time()
 
     sender.generate_server_key(rcvr_email.split('@')[1])
     while(not sender.server_key):
@@ -124,12 +128,16 @@ for i in range(EMAIL_COUNT):
     while(not sender.client_key):
         continue
     sender.send_email(message, rcvr_email)
+
+    globals.TOTAL_TIME += time.time() - start_time
+
     sender.flush_keys()
+
+    time.sleep(0.1) # wait for pending ops
 
 end_time = time.time()
 
-print_stats(constants.PRETZEL_PLUS)
 
-time.sleep(5)  # wait for any pending operations to clear
+time.sleep(1)  # wait for any pending operations to clear
 
 globals.print_params(EMAIL_COUNT)

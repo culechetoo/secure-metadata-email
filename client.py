@@ -68,9 +68,9 @@ class Client:
 
     def send_email(self, message, rcvr_address):
         domain = rcvr_address.split('@')[1]
-
-        # print(domain)
-        # print(self.keys)
+        if globals.LOGGING:
+            print(f'Client %s sending email to receiver %s with message: %s' %
+                  (self.username, rcvr_address, message))
         server_id_key = self.get_key(
             constants.KeyMapValues.SERVER, domain, constants.KeyMapValues.PUBLIC_KEY
         )
@@ -101,13 +101,15 @@ class Client:
 
         message = crypto.decrypt_message_symmetric(
             *email[constants.EmailFields.MESSAGE], sym_key
-        )
-        # print("message", message)
+        ).decode('utf-8')
+        sender_email = email[constants.EmailFields.SENDER_EMAIL]
         if self.privacy_mode == constants.PRETZEL_PLUS:
             sender_email = crypto.decrypt_message_symmetric(
                 *email[constants.EmailFields.SENDER_EMAIL], sym_key
-            )
-            # print("sender_email", sender_email)
+            ).decode('utf-8')
+        if globals.LOGGING:
+            print(f'Client %s received an email from sender %s with message: %s' % (
+                self.username, sender_email, message))
 
     def send_to_server(self, domain, msg):
         # print("Sending", msg, "to", domain, "server from user", self.username)
@@ -120,6 +122,9 @@ class Client:
         globals.CLIENT_BYTES_SENT += len(data)
 
     def generate_server_key(self, domain):
+        if globals.LOGGING:
+            print(f'Client %s generating key for receiving server %s' %
+                  (self.username, domain))
         private_key = crypto.generate_dhe_private_key()
         public_key = private_key.public_key()
         self.add_key(constants.KeyMapValues.SERVER, domain,
@@ -136,6 +141,9 @@ class Client:
         self.send_to_server(self.domain, msg)
 
     def generate_user_key(self, username):
+        if globals.LOGGING:
+            print(f'Client %s generating key for receiving client %s' %
+                  (self.username, username))
         domain = username.split('@')[1]
         private_key = crypto.generate_dhe_private_key()
         public_key = private_key.public_key()
@@ -175,6 +183,8 @@ class Client:
         self.send_to_server(self.domain, msg)
 
     def store_server_key(self, msg):
+        if globals.LOGGING:
+            print(f'Client %s established key with server' % self.username)
         id_key = msg[constants.MessageFields.ID_KEY]
 
         # print("keys for user", self.username, "in domain", self.domain, ":", self.keys)
@@ -198,6 +208,8 @@ class Client:
         self.server_key = symkey
 
     def store_client_key(self, msg):
+        if globals.LOGGING:
+            print(f'Client %s established key with client' % self.username)
         id_key = msg[constants.MessageFields.ID_KEY]
 
         # print("keys for user", self.username, "in domain", self.domain, ":", self.keys)
@@ -277,7 +289,7 @@ class Client:
             if not msg_bytes:
                 break
             globals.CLIENT_BYTES_RECD += len(msg_bytes)
-            
+
             msg = pickle.loads(msg_bytes)
             msg_type = msg[constants.MessageFields.TYPE]
 

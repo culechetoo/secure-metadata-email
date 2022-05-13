@@ -1,5 +1,7 @@
 DOMAIN_SERVER_MAP = {}
 
+LOGGING = True
+
 def reset_params():
     global SERVER_BYTES_SENT
     global SERVER_BYTES_RECD
@@ -7,6 +9,7 @@ def reset_params():
     global CLIENT_BYTES_RECD
     global SERVER_TIME
     global CLIENT_TIME
+    global TOTAL_TIME
     
     SERVER_BYTES_SENT = 0
     SERVER_BYTES_RECD = 0
@@ -16,8 +19,15 @@ def reset_params():
     SERVER_TIME = 0
     CLIENT_TIME = 0
 
+    TOTAL_TIME = 0
+
 
 def print_params(email_count):
+    print()
+    print('- - - - - -  S T A T S  - - - - - -')
+    print(f"Total time: %.2f s" % TOTAL_TIME)
+    print(f"Time per email: %.2f s" % (float(TOTAL_TIME)/float(email_count)))
+    print()
     print(f"Bytes sent per email by clients = %.0f" %
           (float(CLIENT_BYTES_SENT)/float(email_count)))
     print(f"Bytes received per email by clients = %.0f" %
