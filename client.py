@@ -1,9 +1,10 @@
+import time
 import socket
 from unicodedata import name
 import constants
 import crypto
 import pickle
-from globals import DOMAIN_SERVER_MAP
+import globals
 
 
 class Client:
@@ -110,11 +111,13 @@ class Client:
 
     def send_to_server(self, domain, msg):
         # print("Sending", msg, "to", domain, "server from user", self.username)
-        server = DOMAIN_SERVER_MAP[domain]
+        server = globals.DOMAIN_SERVER_MAP[domain]
         skt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         skt.connect((server.host, server.port))
-        skt.sendall(pickle.dumps(msg, -1))
+        data = pickle.dumps(msg, -1)
+        skt.sendall(data)
         skt.close()
+        globals.CLIENT_BYTES_SENT += len(data)
 
     def generate_server_key(self, domain):
         private_key = crypto.generate_dhe_private_key()
@@ -268,8 +271,13 @@ class Client:
         while True:
             conn, _ = self.socket.accept()
             msg_bytes = conn.recv(1024)
+
+            start_time = time.time()
+
             if not msg_bytes:
                 break
+            globals.CLIENT_BYTES_RECD += len(msg_bytes)
+            
             msg = pickle.loads(msg_bytes)
             msg_type = msg[constants.MessageFields.TYPE]
 
@@ -283,3 +291,5 @@ class Client:
                 self.receive_email(msg)
             else:
                 print("Incorrect message type", msg_type)
+
+            globals.CLIENT_TIME += time.time() - start_time

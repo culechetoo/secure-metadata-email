@@ -1,11 +1,13 @@
+import time
 import email
 from http import client
+from tracemalloc import start
 import crypto
 from client import Client
 import socket
 import pickle
 import constants
-from globals import DOMAIN_SERVER_MAP
+import globals
 
 MAX_QUEUE = 5
 
@@ -87,7 +89,7 @@ class Server:
 
     def send(self, email):
         receiving_domain = email["rcvr_domain"]
-        rcvr_server = DOMAIN_SERVER_MAP[receiving_domain]
+        rcvr_server = globals.DOMAIN_SERVER_MAP[receiving_domain]
         rcvr_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         rcvr_socket.connect((rcvr_server.host, rcvr_server.port))
         rcvr_socket.sendall(pickle.dumps(email, -1))
@@ -95,19 +97,23 @@ class Server:
 
     def send_to_server(self, domain, msg):
         # print("Sending", msg, "to", domain, "server from", self.domain)
-        server = DOMAIN_SERVER_MAP[domain]
+        server = globals.DOMAIN_SERVER_MAP[domain]
         skt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         skt.connect((server.host, server.port))
-        skt.sendall(pickle.dumps(msg, -1))
+        data = pickle.dumps(msg, -1)
+        skt.sendall(data)
         skt.close()
+        globals.SERVER_BYTES_SENT += len(data)
 
     def send_to_user(self, username, msg):
         # print("Sending", msg, "to", username, "user from", self.domain)
         user = self.users[username]
         skt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         skt.connect((user.host, user.port))
-        skt.sendall(pickle.dumps(msg, -1))
+        data = pickle.dumps(msg, -1)
+        skt.sendall(data)
         skt.close()
+        globals.SERVER_BYTES_SENT += len(data)
 
     def forward_email_to_server(self, email):
         domain = email[constants.EmailFields.DOMAIN]
@@ -211,10 +217,17 @@ class Server:
         while True:
             conn, _ = self.socket.accept()
             msg_bytes = conn.recv(1024)
+            
+            start_time = time.time()
+            
             if not msg_bytes:
                 break
+
+            globals.SERVER_BYTES_RECD += len(msg_bytes)
+
             msg = pickle.loads(msg_bytes)
             msg_type = msg['type']
+
 
             if (msg_type == constants.MessageType.SERVER_KEYGEN_FWD):
                 self.forward_server_keygen(msg)
@@ -236,5 +249,10 @@ class Server:
                 self.forward_email_to_user(msg)
             else:
                 print("Incorrect message type", msg_type)
+
+            globals.SERVER_TIME += time.time() - start_time
+
+
+
 
             # print("Received msg", msg)
