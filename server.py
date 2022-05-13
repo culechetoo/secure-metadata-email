@@ -110,6 +110,8 @@ class Server:
                 globals.PROTOCOL_WISE_BYTES_STATS[protocol]["GOOGL_BYTES_SENT"] += len(data)
             else:
                 globals.PROTOCOL_WISE_BYTES_STATS[protocol]["YAHOO_BYTES_SENT"] += len(data)
+        else:
+            globals.SERVER_BYTES_SENT -= len(data)
 
     def send_to_user(self, username, msg, protocol, google):
         # print("Sending", msg, "to", username, "user from", self.domain)
@@ -126,6 +128,8 @@ class Server:
                 globals.PROTOCOL_WISE_BYTES_STATS[protocol]["GOOGL_BYTES_SENT"] += len(data)
             else:
                 globals.PROTOCOL_WISE_BYTES_STATS[protocol]["YAHOO_BYTES_SENT"] += len(data)
+        else:
+            globals.SERVER_BYTES_SENT -= len(data)
 
     def forward_email_to_server(self, email):
         domain = email[constants.EmailFields.DOMAIN]
@@ -259,9 +263,11 @@ class Server:
             elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RCV):  # Step 2 yahoo
                 self.forward_client_keygen_to_client(msg)
                 globals.PROTOCOL_WISE_BYTES_STATS[2]["YAHOO_BYTES_RECD"] += len(msg_bytes)
-                globals.PROTOCOL_WISE_TIME_STATS[2]["YAHOO_TIME"] += time.time() - start_time
+                globals.SERVER_TIME -= time.time() - start_time
             elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RETURN_FWD):
                 self.return_client_keygen_to_server(msg)
+                globals.SERVER_BYTES_RECD -= len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[2]["YAHOO_TIME"] += time.time() - start_time
             elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RETURN_RCV):  # Step 2 google
                 self.return_client_keygen_to_user(msg)
                 globals.PROTOCOL_WISE_BYTES_STATS[2]["GOOGL_BYTES_RECD"] += len(msg_bytes)

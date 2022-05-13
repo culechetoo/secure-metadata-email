@@ -121,6 +121,8 @@ class Client:
 
         if protocol > 0:
             globals.PROTOCOL_WISE_BYTES_STATS[protocol]["ALICE_BYTES_SENT"] += len(data)
+        else:
+            globals.CLIENT_BYTES_SENT -= len(data)
 
 
     def generate_server_key(self, domain):  # Step 1 Alice
@@ -291,6 +293,7 @@ class Client:
                 globals.PROTOCOL_WISE_TIME_STATS[1]["ALICE_TIME"] += len(msg_bytes)
             elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RCV): # Step 4 Bob
                 self.exchange_user_key(msg)
+                globals.CLIENT_TIME -= time.time() - start_time
             elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RETURN_RCV):  # Step 2 Alice
                 self.store_client_key(msg)
                 globals.PROTOCOL_WISE_BYTES_STATS[2]["ALICE_BYTES_RECD"] += len(msg_bytes)

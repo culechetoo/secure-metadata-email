@@ -10,7 +10,7 @@ import sys
 import threading
 import meta  # create data
 
-EMAIL_COUNT = 10
+EMAIL_COUNT = 1000
 
 users = []
 email_addresses = []
