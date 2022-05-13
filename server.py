@@ -95,7 +95,7 @@ class Server:
         rcvr_socket.sendall(pickle.dumps(email, -1))
         rcvr_socket.close()
 
-    def send_to_server(self, domain, msg):
+    def send_to_server(self, domain, msg, protocol, google):
         # print("Sending", msg, "to", domain, "server from", self.domain)
         server = globals.DOMAIN_SERVER_MAP[domain]
         skt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -105,7 +105,13 @@ class Server:
         skt.close()
         globals.SERVER_BYTES_SENT += len(data)
 
-    def send_to_user(self, username, msg):
+        if protocol > 0:
+            if google:
+                globals.PROTOCOL_WISE_BYTES_STATS[protocol]["GOOGL_BYTES_SENT"] += len(data)
+            else:
+                globals.PROTOCOL_WISE_BYTES_STATS[protocol]["YAHOO_BYTES_SENT"] += len(data)
+
+    def send_to_user(self, username, msg, protocol, google):
         # print("Sending", msg, "to", username, "user from", self.domain)
         user = self.users[username]
         skt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -115,11 +121,17 @@ class Server:
         skt.close()
         globals.SERVER_BYTES_SENT += len(data)
 
+        if protocol > 0:
+            if google:
+                globals.PROTOCOL_WISE_BYTES_STATS[protocol]["GOOGL_BYTES_SENT"] += len(data)
+            else:
+                globals.PROTOCOL_WISE_BYTES_STATS[protocol]["YAHOO_BYTES_SENT"] += len(data)
+
     def forward_email_to_server(self, email):
         domain = email[constants.EmailFields.DOMAIN]
         email[constants.MessageFields.TYPE] = constants.MessageType.EMAIL_RCV
 
-        self.send_to_server(domain, email)
+        self.send_to_server(domain, email, 3, True)
 
     def forward_email_to_user(self, email):
         receiver_email = email[constants.EmailFields.RECEIVER_EMAIL]
@@ -134,7 +146,7 @@ class Server:
                 *email[constants.EmailFields.RECEIVER_EMAIL], symkey
             ).decode('utf-8')
 
-        self.send_to_user(receiver_email.split('@')[0], email)
+        self.send_to_user(receiver_email.split('@')[0], email, 4, False)
 
     def forward_server_keygen(self, msg):
         domain = msg[constants.MessageFields.DOMAIN]
@@ -144,7 +156,7 @@ class Server:
         msg[constants.MessageFields.TYPE] = constants.MessageType.SERVER_KEYGEN_RCV
         msg[constants.MessageFields.RETURN_DOMAIN] = self.domain
         del msg[constants.MessageFields.USERNAME]  # to ensure privacy
-        self.send_to_server(domain, msg)
+        self.send_to_server(domain, msg, 1, True)
 
     def forward_client_keygen_to_server(self, msg):
         domain = msg[constants.MessageFields.DOMAIN]
@@ -155,12 +167,12 @@ class Server:
         msg[constants.MessageFields.TYPE] = constants.MessageType.CLIENT_KEYGEN_RCV
         msg[constants.MessageFields.RETURN_DOMAIN] = self.domain
         del msg[constants.MessageFields.USERNAME]  # to ensure privacy
-        self.send_to_server(domain, msg)
+        self.send_to_server(domain, msg, 2, True)
 
     def return_client_keygen_to_server(self, msg):
         domain = msg[constants.MessageFields.DOMAIN]
         msg[constants.MessageFields.TYPE] = constants.MessageType.CLIENT_KEYGEN_RETURN_RCV
-        self.send_to_server(domain, msg)
+        self.send_to_server(domain, msg, -1, False)
 
     def return_client_keygen_to_user(self, msg):
         # print(msg[constants.MessageFields.ID_KEY])
@@ -168,7 +180,7 @@ class Server:
         username = self.get_user_by_id_key(
             crypto.deserialize_public_key(msg[constants.MessageFields.ID_KEY])
         )
-        self.send_to_user(username, msg)
+        self.send_to_user(username, msg, 2, True)
 
     def forward_client_keygen_to_client(self, msg):
         email_address = None
@@ -184,7 +196,7 @@ class Server:
                 *msg[constants.MessageFields.RECEIVER], symkey).decode('utf-8')
 
         username = email_address.split('@')[0]
-        self.send_to_user(username, msg)
+        self.send_to_user(username, msg, 2, False)
 
     def key_exchange(self, msg):
         received_public_key = crypto.deserialize_public_key(
@@ -205,13 +217,13 @@ class Server:
             constants.MessageFields.KEY: crypto.serialize_public_key(generated_private_key.public_key()),
             constants.MessageFields.ID_KEY: crypto.serialize_public_key(received_public_key),
         }
-        self.send_to_server(return_domain, response_key_message)
+        self.send_to_server(return_domain, response_key_message, 1, False)
 
     def relay_key_to_client(self, msg):
         client_key = msg[constants.MessageFields.ID_KEY]
         username = self.get_username_by_key(client_key)
         self.remove_client_key(client_key)
-        self.send_to_user(username, msg)
+        self.send_to_user(username, msg, 1, True)
 
     def rcv_socket_loop(self):
         while True:
@@ -228,25 +240,40 @@ class Server:
             msg = pickle.loads(msg_bytes)
             msg_type = msg['type']
 
-
-            if (msg_type == constants.MessageType.SERVER_KEYGEN_FWD):
+            if (msg_type == constants.MessageType.SERVER_KEYGEN_FWD):  # Step 1 google
                 self.forward_server_keygen(msg)
-            elif (msg_type == constants.MessageType.SERVER_KEYGEN_RCV):
+                globals.PROTOCOL_WISE_BYTES_STATS[1]["GOOGL_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[1]["GOOGL_TIME"] += time.time() - start_time
+            elif (msg_type == constants.MessageType.SERVER_KEYGEN_RCV):  # Step 1 yahoo
                 self.key_exchange(msg)
-            elif (msg_type == constants.MessageType.SERVER_KEYGEN_RETURN):
+                globals.PROTOCOL_WISE_BYTES_STATS[1]["YAHOO_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[1]["YAHOO_TIME"] += time.time() - start_time
+            elif (msg_type == constants.MessageType.SERVER_KEYGEN_RETURN):  # Step 1 google
                 self.relay_key_to_client(msg)
-            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_FWD):
+                globals.PROTOCOL_WISE_BYTES_STATS[1]["GOOGL_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[1]["GOOGL_TIME"] += time.time() - start_time
+            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_FWD):  # Step 2 google
                 self.forward_client_keygen_to_server(msg)
-            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RCV):
+                globals.PROTOCOL_WISE_BYTES_STATS[2]["GOOGL_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[2]["GOOGL_TIME"] += time.time() - start_time
+            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RCV):  # Step 2 yahoo
                 self.forward_client_keygen_to_client(msg)
+                globals.PROTOCOL_WISE_BYTES_STATS[2]["YAHOO_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[2]["YAHOO_TIME"] += time.time() - start_time
             elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RETURN_FWD):
                 self.return_client_keygen_to_server(msg)
-            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RETURN_RCV):
+            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RETURN_RCV):  # Step 2 google
                 self.return_client_keygen_to_user(msg)
-            elif (msg_type == constants.MessageType.EMAIL_FWD):
+                globals.PROTOCOL_WISE_BYTES_STATS[2]["GOOGL_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[2]["GOOGL_TIME"] += time.time() - start_time
+            elif (msg_type == constants.MessageType.EMAIL_FWD):  # Step 3 google
                 self.forward_email_to_server(msg)
-            elif (msg_type == constants.MessageType.EMAIL_RCV):
+                globals.PROTOCOL_WISE_BYTES_STATS[3]["GOOGL_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[3]["GOOGL_TIME"] += time.time() - start_time
+            elif (msg_type == constants.MessageType.EMAIL_RCV):  # Step 3 yahoo
                 self.forward_email_to_user(msg)
+                globals.PROTOCOL_WISE_BYTES_STATS[3]["YAHOO_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[3]["YAHOO_TIME"] += time.time() - start_time
             else:
                 print("Incorrect message type", msg_type)
 

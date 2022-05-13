@@ -92,7 +92,7 @@ class Client:
             email[constants.EmailFields.RECEIVER_EMAIL] = crypto.encrypt_message_symmetric(
                 rcvr_address, self.server_key)
 
-        self.send_to_server(self.domain, email)
+        self.send_to_server(self.domain, email, 3)
 
     def receive_email(self, email):
         # print("keys", self.keys)
@@ -109,7 +109,7 @@ class Client:
             )
             # print("sender_email", sender_email)
 
-    def send_to_server(self, domain, msg):
+    def send_to_server(self, domain, msg, protocol):
         # print("Sending", msg, "to", domain, "server from user", self.username)
         server = globals.DOMAIN_SERVER_MAP[domain]
         skt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -119,7 +119,11 @@ class Client:
         skt.close()
         globals.CLIENT_BYTES_SENT += len(data)
 
-    def generate_server_key(self, domain):
+        if protocol > 0:
+            globals.PROTOCOL_WISE_BYTES_STATS[protocol]["ALICE_BYTES_SENT"] += len(data)
+
+
+    def generate_server_key(self, domain):  # Step 1 Alice
         private_key = crypto.generate_dhe_private_key()
         public_key = private_key.public_key()
         self.add_key(constants.KeyMapValues.SERVER, domain,
@@ -133,9 +137,9 @@ class Client:
             constants.MessageFields.DOMAIN: domain,
             constants.MessageFields.USERNAME: self.username,
         }
-        self.send_to_server(self.domain, msg)
+        self.send_to_server(self.domain, msg, 1)
 
-    def generate_user_key(self, username):
+    def generate_user_key(self, username): # Step 2 Alice
         domain = username.split('@')[1]
         private_key = crypto.generate_dhe_private_key()
         public_key = private_key.public_key()
@@ -172,7 +176,7 @@ class Client:
                 server_id_key
             )
 
-        self.send_to_server(self.domain, msg)
+        self.send_to_server(self.domain, msg, 2)
 
     def store_server_key(self, msg):
         id_key = msg[constants.MessageFields.ID_KEY]
@@ -265,7 +269,7 @@ class Client:
             constants.MessageFields.DOMAIN: return_domain,
         }
 
-        self.send_to_server(self.domain, msg)
+        self.send_to_server(self.domain, msg, -1)
 
     def rcv_socket_loop(self):
         while True:
@@ -281,14 +285,20 @@ class Client:
             msg = pickle.loads(msg_bytes)
             msg_type = msg[constants.MessageFields.TYPE]
 
-            if (msg_type == constants.MessageType.SERVER_KEYGEN_RETURN):
+            if (msg_type == constants.MessageType.SERVER_KEYGEN_RETURN):  # Step 1 Alice
                 self.store_server_key(msg)
-            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RCV):
+                globals.PROTOCOL_WISE_BYTES_STATS[1]["ALICE_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[1]["ALICE_TIME"] += len(msg_bytes)
+            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RCV): # Step 4 Bob
                 self.exchange_user_key(msg)
-            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RETURN_RCV):
+            elif (msg_type == constants.MessageType.CLIENT_KEYGEN_RETURN_RCV):  # Step 2 Alice
                 self.store_client_key(msg)
-            elif (msg_type == constants.MessageType.EMAIL_RCV):
+                globals.PROTOCOL_WISE_BYTES_STATS[2]["ALICE_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[2]["ALICE_TIME"] += len(msg_bytes)
+            elif (msg_type == constants.MessageType.EMAIL_RCV):  # Step 4 Bob
                 self.receive_email(msg)
+                globals.PROTOCOL_WISE_BYTES_STATS[4]["BOB_BYTES_RECD"] += len(msg_bytes)
+                globals.PROTOCOL_WISE_TIME_STATS[4]["BOB_TIME"] += len(msg_bytes)
             else:
                 print("Incorrect message type", msg_type)
 
